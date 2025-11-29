@@ -149,9 +149,9 @@ export const VoicePlugin: Plugin = async ({ $ }) => {
         async execute(args) {
           const success = await speak(args.text)
           if (success) {
-            return `Spoken: "${args.text}"`
+            return `„${args.text}"`
           } else {
-            return `Failed to speak: "${args.text}"`
+            return `[TTS error] „${args.text}"`
           }
         },
       }),

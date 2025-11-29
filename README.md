@@ -78,8 +78,11 @@ Once installed, the AI can use the `speak` tool to speak text aloud:
 
 ```
 AI: I'll confirm this with voice output.
-[Calls speak tool with: "Úkol byl úspěšně dokončen."]
+⚙ speak [text=Úkol byl úspěšně dokončen.]
+⚙ „Úkol byl úspěšně dokončen."
 ```
+
+The output uses Czech quotation marks („") for clean, readable display.
 
 ### TTS API Contract
 
