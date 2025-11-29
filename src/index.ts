@@ -7,6 +7,8 @@ import { tool } from "@opencode-ai/plugin"
 interface TTSConfig {
   /** TTS API endpoint URL */
   apiUrl: string
+  /** Can-speak check endpoint URL */
+  canSpeakUrl: string
   /** Fallback shell script path */
   fallbackScript: string
   /** Whether to announce when session becomes idle */
@@ -20,6 +22,7 @@ interface TTSConfig {
  */
 const defaultConfig: TTSConfig = {
   apiUrl: "http://localhost:5555/api/speech/speak",
+  canSpeakUrl: "http://localhost:5555/api/speech/can-speak",
   fallbackScript: "~/voice-assistant/voice-output/tts-api.sh",
   announceOnIdle: false,
   idleMessage: "Úkol dokončen.",
@@ -31,9 +34,34 @@ const defaultConfig: TTSConfig = {
 function loadConfig(): TTSConfig {
   return {
     apiUrl: process.env.OPENCODE_TTS_API_URL ?? defaultConfig.apiUrl,
+    canSpeakUrl: process.env.OPENCODE_TTS_CAN_SPEAK_URL ?? defaultConfig.canSpeakUrl,
     fallbackScript: process.env.OPENCODE_TTS_FALLBACK_SCRIPT ?? defaultConfig.fallbackScript,
     announceOnIdle: process.env.OPENCODE_TTS_ANNOUNCE_IDLE === "true",
     idleMessage: process.env.OPENCODE_TTS_IDLE_MESSAGE ?? defaultConfig.idleMessage,
+  }
+}
+
+/**
+ * Check if we can speak (no active speech lock)
+ */
+async function canSpeak(config: TTSConfig): Promise<boolean> {
+  try {
+    const response = await fetch(config.canSpeakUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(1000), // 1 second timeout
+    })
+    
+    if (response.ok) {
+      const data = await response.json() as { canSpeak: boolean }
+      return data.canSpeak
+    }
+    
+    // On error, allow speaking (fail open)
+    return true
+  } catch (error) {
+    // Network error or timeout - allow speaking
+    console.warn("Could not check speech lock, allowing speech:", error)
+    return true
   }
 }
 
@@ -43,6 +71,7 @@ function loadConfig(): TTSConfig {
  * Provides text-to-speech functionality for OpenCode through:
  * - A `speak` tool that the AI can call to speak text aloud
  * - Optional automatic announcements on session events
+ * - Speech lock checking to prevent speaking while user is recording
  * 
  * @example
  * // The AI can use the speak tool like this:
@@ -55,6 +84,13 @@ export const VoicePlugin: Plugin = async ({ $ }) => {
    * Speak text using the TTS API or fallback script
    */
   async function speak(text: string): Promise<boolean> {
+    // Check if we can speak (user not recording)
+    const allowed = await canSpeak(config)
+    if (!allowed) {
+      console.log("🔒 Speech locked (user recording), skipping TTS")
+      return true // Return success but don't speak
+    }
+
     try {
       // Try HTTP API first
       const response = await fetch(config.apiUrl, {

@@ -5,6 +5,7 @@ A plugin for [OpenCode](https://opencode.ai) that provides text-to-speech (TTS) 
 ## Features
 
 - **`speak` tool** - AI can call this tool to speak text aloud
+- **Speech lock support** - Automatically checks if user is recording before speaking
 - **HTTP API support** - Connects to any TTS server with a simple REST API
 - **Fallback support** - Falls back to shell script if API is unavailable
 - **Session events** - Optional automatic announcements on session completion
@@ -33,7 +34,7 @@ npm run build
 mkdir -p ~/.config/opencode/plugin
 
 # Create symlink
-ln -s /path/to/opencode-voice-plugin/dist ~/.config/opencode/plugin/voice
+ln -s /path/to/opencode-voice-plugin/dist/index.js ~/.config/opencode/plugin/voice.js
 ```
 
 ### 4. Restart OpenCode
@@ -47,17 +48,19 @@ Configure the plugin using environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENCODE_TTS_API_URL` | `http://localhost:5555/api/speech/speak` | TTS API endpoint |
+| `OPENCODE_TTS_CAN_SPEAK_URL` | `http://localhost:5555/api/speech/can-speak` | Speech lock check endpoint |
 | `OPENCODE_TTS_FALLBACK_SCRIPT` | `~/voice-assistant/voice-output/tts-api.sh` | Fallback shell script |
 | `OPENCODE_TTS_ANNOUNCE_IDLE` | `false` | Announce when session becomes idle |
 | `OPENCODE_TTS_IDLE_MESSAGE` | `Úkol dokončen.` | Message to speak on idle |
 
-### Example: Using with EdgeTTS Server
+### Example: Using with EdgeTTS WebSocket Server
 
-This plugin works great with [EdgeTTS WebSocket Server](https://github.com/your-edgetts-server):
+This plugin is designed to work with EdgeTTS WebSocket Server (part of VoiceAssistant project):
 
 ```bash
 # Set your TTS API endpoint
 export OPENCODE_TTS_API_URL="http://localhost:5555/api/speech/speak"
+export OPENCODE_TTS_CAN_SPEAK_URL="http://localhost:5555/api/speech/can-speak"
 ```
 
 ### Example: Using with a shell script
