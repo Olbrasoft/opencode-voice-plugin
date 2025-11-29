@@ -1,0 +1,36 @@
+{
+  "name": "opencode-voice-plugin",
+  "version": "1.0.0",
+  "description": "OpenCode plugin for text-to-speech voice output and notifications",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "tts",
+    "text-to-speech",
+    "voice",
+    "notifications"
+  ],
+  "author": "Olbrasoft",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Olbrasoft/opencode-voice-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Olbrasoft/opencode-voice-plugin/issues"
+  },
+  "homepage": "https://github.com/Olbrasoft/opencode-voice-plugin#readme",
+  "devDependencies": {
+    "@opencode-ai/plugin": "latest",
+    "@types/node": "^24.10.1",
+    "typescript": "^5.0.0"
+  }
+}
