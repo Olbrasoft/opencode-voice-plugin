@@ -31,7 +31,7 @@ const defaultConfig: TTSConfig = {
   announceOnIdle: false,
   idleMessage: "Úkol dokončen.",
   dbPath: "/home/jirka/voice-assistant/voice-assistant.db",
-  storeAiResponses: true,
+  storeAiResponses: false, // DISABLED by default - must be explicitly enabled via OPENCODE_STORE_AI_RESPONSES=true
 }
 
 /**
@@ -45,7 +45,7 @@ function loadConfig(): TTSConfig {
     announceOnIdle: process.env.OPENCODE_TTS_ANNOUNCE_IDLE === "true",
     idleMessage: process.env.OPENCODE_TTS_IDLE_MESSAGE ?? defaultConfig.idleMessage,
     dbPath: process.env.OPENCODE_DB_PATH ?? defaultConfig.dbPath,
-    storeAiResponses: process.env.OPENCODE_STORE_AI_RESPONSES !== "false",
+    storeAiResponses: process.env.OPENCODE_STORE_AI_RESPONSES === "true", // Must be explicitly enabled
   }
 }
 
@@ -131,6 +131,7 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
 
   /**
    * Store AI response directly to SQLite database
+   * Completely silent - no output to terminal ever
    */
   async function storeAiResponse(content: string): Promise<void> {
     if (!config.storeAiResponses || !content.trim()) {
@@ -140,9 +141,10 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
     try {
       // Escape single quotes for SQL
       const escapedContent = content.replace(/'/g, "''")
-      await $`sqlite3 ${config.dbPath} "INSERT INTO AiResponses (Content) VALUES ('${escapedContent}');"`
-    } catch (error) {
-      // Silent fail - storage is optional
+      // Redirect stderr to /dev/null to prevent any terminal output
+      await $`sqlite3 ${config.dbPath} "INSERT INTO AiResponses (Content) VALUES ('${escapedContent}');" 2>/dev/null`
+    } catch {
+      // Silent fail - no output to terminal
     }
   }
 
@@ -166,7 +168,7 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
         await speak(config.idleMessage)
       }
 
-      // Store AI response when session becomes idle
+      // Store AI response when session becomes idle (only if explicitly enabled)
       if (event.type === "session.idle" && config.storeAiResponses) {
         if (!client) {
           return
@@ -190,8 +192,8 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
               await storeAiResponse(textContent)
             }
           }
-        } catch (error) {
-          // Silent fail
+        } catch {
+          // Silent fail - no output to terminal
         }
       }
     },
