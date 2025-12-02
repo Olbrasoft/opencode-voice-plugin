@@ -15,9 +15,9 @@ interface TTSConfig {
   announceOnIdle: boolean
   /** Default idle announcement message */
   idleMessage: string
-  /** Discussion API endpoint URL for storing AI responses */
-  discussionApiUrl: string
-  /** Whether to store AI responses to discussion database */
+  /** SQLite database path for storing AI responses */
+  dbPath: string
+  /** Whether to store AI responses to database */
   storeAiResponses: boolean
 }
 
@@ -30,7 +30,7 @@ const defaultConfig: TTSConfig = {
   fallbackScript: "~/voice-assistant/voice-output/tts-api.sh",
   announceOnIdle: false,
   idleMessage: "Úkol dokončen.",
-  discussionApiUrl: "http://localhost:5051/api/discussions/active/ai-response",
+  dbPath: "/home/jirka/voice-assistant/voice-assistant.db",
   storeAiResponses: true,
 }
 
@@ -44,7 +44,7 @@ function loadConfig(): TTSConfig {
     fallbackScript: process.env.OPENCODE_TTS_FALLBACK_SCRIPT ?? defaultConfig.fallbackScript,
     announceOnIdle: process.env.OPENCODE_TTS_ANNOUNCE_IDLE === "true",
     idleMessage: process.env.OPENCODE_TTS_IDLE_MESSAGE ?? defaultConfig.idleMessage,
-    discussionApiUrl: process.env.OPENCODE_DISCUSSION_API_URL ?? defaultConfig.discussionApiUrl,
+    dbPath: process.env.OPENCODE_DB_PATH ?? defaultConfig.dbPath,
     storeAiResponses: process.env.OPENCODE_STORE_AI_RESPONSES !== "false",
   }
 }
@@ -130,8 +130,7 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
   }
 
   /**
-   * Store AI response to discussion database
-   * Silently fails if API is not available (non-blocking)
+   * Store AI response directly to SQLite database
    */
   async function storeAiResponse(content: string): Promise<void> {
     if (!config.storeAiResponses || !content.trim()) {
@@ -139,15 +138,11 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
     }
 
     try {
-      await fetch(config.discussionApiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-        signal: AbortSignal.timeout(5000), // 5 second timeout
-      })
-      // Silent success - no logging needed
+      // Escape single quotes for SQL
+      const escapedContent = content.replace(/'/g, "''")
+      await $`sqlite3 ${config.dbPath} "INSERT INTO AiResponses (Content) VALUES ('${escapedContent}');"`
     } catch (error) {
-      // Silent fail - discussion storage is optional
+      // Silent fail - storage is optional
     }
   }
 
@@ -172,7 +167,10 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
       }
 
       // Store AI response when session becomes idle
-      if (event.type === "session.idle" && config.storeAiResponses && client) {
+      if (event.type === "session.idle" && config.storeAiResponses) {
+        if (!client) {
+          return
+        }
         try {
           const sessionId = (event.properties as { sessionID: string }).sessionID
           const messagesResponse = await client.session.messages({
@@ -193,7 +191,7 @@ export const VoicePlugin: Plugin = async ({ $, client }) => {
             }
           }
         } catch (error) {
-          // Silent fail - don't interrupt the flow
+          // Silent fail
         }
       }
     },
