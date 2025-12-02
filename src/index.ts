@@ -15,6 +15,10 @@ interface TTSConfig {
   announceOnIdle: boolean
   /** Default idle announcement message */
   idleMessage: string
+  /** Discussion API endpoint URL for storing AI responses */
+  discussionApiUrl: string
+  /** Whether to store AI responses to discussion database */
+  storeAiResponses: boolean
 }
 
 /**
@@ -26,6 +30,8 @@ const defaultConfig: TTSConfig = {
   fallbackScript: "~/voice-assistant/voice-output/tts-api.sh",
   announceOnIdle: false,
   idleMessage: "Úkol dokončen.",
+  discussionApiUrl: "http://localhost:5051/api/discussions/active/ai-response",
+  storeAiResponses: true,
 }
 
 /**
@@ -38,6 +44,8 @@ function loadConfig(): TTSConfig {
     fallbackScript: process.env.OPENCODE_TTS_FALLBACK_SCRIPT ?? defaultConfig.fallbackScript,
     announceOnIdle: process.env.OPENCODE_TTS_ANNOUNCE_IDLE === "true",
     idleMessage: process.env.OPENCODE_TTS_IDLE_MESSAGE ?? defaultConfig.idleMessage,
+    discussionApiUrl: process.env.OPENCODE_DISCUSSION_API_URL ?? defaultConfig.discussionApiUrl,
+    storeAiResponses: process.env.OPENCODE_STORE_AI_RESPONSES !== "false",
   }
 }
 
@@ -59,8 +67,7 @@ async function canSpeak(config: TTSConfig): Promise<boolean> {
     // On error, allow speaking (fail open)
     return true
   } catch (error) {
-    // Network error or timeout - allow speaking
-    console.warn("Could not check speech lock, allowing speech:", error)
+    // Network error or timeout - allow speaking (silent)
     return true
   }
 }
@@ -72,13 +79,17 @@ async function canSpeak(config: TTSConfig): Promise<boolean> {
  * - A `speak` tool that the AI can call to speak text aloud
  * - Optional automatic announcements on session events
  * - Speech lock checking to prevent speaking while user is recording
+ * - Automatic storage of AI responses to discussion database
  * 
  * @example
  * // The AI can use the speak tool like this:
  * // speak({ text: "Úkol byl dokončen." })
  */
-export const VoicePlugin: Plugin = async ({ $ }) => {
+export const VoicePlugin: Plugin = async ({ $, client }) => {
   const config = loadConfig()
+  
+  // Track which sessions we've already processed to avoid duplicates
+  let lastProcessedMessageId: string | null = null
 
   /**
    * Speak text using the TTS API or fallback script
@@ -87,7 +98,7 @@ export const VoicePlugin: Plugin = async ({ $ }) => {
     // Check if we can speak (user not recording)
     const allowed = await canSpeak(config)
     if (!allowed) {
-      console.log("🔒 Speech locked (user recording), skipping TTS")
+      // Silent skip - no log output
       return true // Return success but don't speak
     }
 
@@ -103,11 +114,9 @@ export const VoicePlugin: Plugin = async ({ $ }) => {
         return true
       }
 
-      // API failed, try fallback
-      console.warn(`TTS API returned ${response.status}, using fallback script`)
+      // API failed, try fallback (silent)
     } catch (error) {
-      // Network error, use fallback
-      console.warn("TTS API unavailable, using fallback script:", error)
+      // Network error, use fallback (silent)
     }
 
     // Fallback to shell script
@@ -115,9 +124,41 @@ export const VoicePlugin: Plugin = async ({ $ }) => {
       await $`${config.fallbackScript} ${text}`
       return true
     } catch (error) {
-      console.error("TTS fallback script failed:", error)
+      // Fallback failed (silent)
       return false
     }
+  }
+
+  /**
+   * Store AI response to discussion database
+   * Silently fails if API is not available (non-blocking)
+   */
+  async function storeAiResponse(content: string): Promise<void> {
+    if (!config.storeAiResponses || !content.trim()) {
+      return
+    }
+
+    try {
+      await fetch(config.discussionApiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+        signal: AbortSignal.timeout(5000), // 5 second timeout
+      })
+      // Silent success - no logging needed
+    } catch (error) {
+      // Silent fail - discussion storage is optional
+    }
+  }
+
+  /**
+   * Extract text content from message parts
+   */
+  function extractTextFromParts(parts: Array<{ type: string; text?: string }>): string {
+    return parts
+      .filter((part) => part.type === "text" && part.text)
+      .map((part) => part.text)
+      .join("\n")
   }
 
   return {
@@ -128,6 +169,32 @@ export const VoicePlugin: Plugin = async ({ $ }) => {
       // Announce when session becomes idle (if enabled)
       if (event.type === "session.idle" && config.announceOnIdle) {
         await speak(config.idleMessage)
+      }
+
+      // Store AI response when session becomes idle
+      if (event.type === "session.idle" && config.storeAiResponses && client) {
+        try {
+          const sessionId = (event.properties as { sessionID: string }).sessionID
+          const messagesResponse = await client.session.messages({
+            path: { id: sessionId },
+          })
+
+          // Find the last assistant message
+          const messages = messagesResponse.data ?? []
+          const lastAssistantMessage = [...messages]
+            .reverse()
+            .find((m) => m.info.role === "assistant")
+
+          if (lastAssistantMessage && lastAssistantMessage.info.id !== lastProcessedMessageId) {
+            lastProcessedMessageId = lastAssistantMessage.info.id
+            const textContent = extractTextFromParts(lastAssistantMessage.parts as Array<{ type: string; text?: string }>)
+            if (textContent) {
+              await storeAiResponse(textContent)
+            }
+          }
+        } catch (error) {
+          // Silent fail - don't interrupt the flow
+        }
       }
     },
 
